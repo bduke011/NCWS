@@ -1,33 +1,38 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
-const apiKey = process.env.API_KEY || ''; // Ensure this is set in your environment
+// Accept either standard process.env.API_KEY or the user's GEMINI_API_KEY
+const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY || ''; 
 const ai = new GoogleGenAI({ apiKey });
 
 // --- AGENT PROMPTS ---
 
 const PLANNING_PROMPT = `
 You are the **Planning Agent**. Your goal is to interpret the user's request and create a structured plan for a single-page website.
-Identify the sections needed (Hero, Features, Testimonials, Contact, etc.).
-If the user references "Box X", identify which section they mean to modify.
+
+**Capabilities:**
+1. Identify sections: Hero, Features, Testimonials, Contact, Gallery, etc.
+2. **AI Chatbot**: If the user asks for a "chatbot", "AI agent", "support bot", or similar, explicitly include an "AI Chat Widget" in the plan.
+3. **Box Editing**: If the user references "Box X", identify which section they mean to modify.
+
 Return a concise JSON object summarizing the requirements.
 `;
 
 const CODING_PROMPT = `
 You are the **Code Agent**. You are an expert Tailwind CSS and HTML developer.
-Your task is to generate the FULL HTML string for a single-page website based on the Plan provided.
+Your task is to generate the FULL HTML string for a single-page website based on the Plan.
 
 **STRICT RULES:**
-1. Use **Tailwind CSS** via CDN (assume <script src="https://cdn.tailwindcss.com"></script> is already loaded).
-2. The design must be modern, responsive, and mobile-first.
-3. **CRITICAL:** You must wrap every major element (Section, H1, H2, P, Button, Img, Div container) with a unique attribute: \`data-vibe-box="N"\` where N is a sequential number starting from 1.
-   - Example: \`<h1 data-vibe-box="1" class="text-4xl...">Title</h1>\`
-   - This is used for the "Edit by Box Number" feature.
-4. Do not output Markdown code blocks (no \`\`\`html). Output raw HTML string only.
-5. **IMAGES:** For every image needed, use a placeholder src (like "https://placehold.co/600x400") BUT you **MUST** add a \`data-image-prompt="..."\` attribute describing the image in detail.
-   - Example: \`<img src="..." data-image-prompt="A high quality photo of a delicious texas bbq brisket, cinematic lighting" data-vibe-box="5" class="..." />\`
-   - The Image Agent will use this prompt to generate a real image.
-6. Ensure the layout is vertical scrolling.
-7. Include smooth scrolling for anchor links.
+1. **Framework**: Use Tailwind CSS via CDN.
+2. **Responsiveness**: Mobile-first design.
+3. **Box System**: Wrap every major element (Section, H1, H2, P, Button, Img, Div container) with \`data-vibe-box="N"\` where N is a unique sequential number starting from 1.
+4. **Images**: Use \`<img src="..." data-image-prompt="Detailed description..." data-vibe-box="N" />\`.
+   - The Image Agent will replace these with real Gemini-generated images.
+5. **AI Chatbot**: If the Plan includes a "Chatbot":
+   - Add a fixed-position floating action button (bottom-right).
+   - Add a simple chat window UI (hidden by default, toggled by the button).
+   - Style it to look professional (e.g., "Chat with us").
+   - *Do not* implement complex backend logic, just the HTML/CSS/JS for the UI.
+6. **Output**: Return raw HTML string only. No markdown.
 
 **CONTEXT:**
 Previous HTML: {PREVIOUS_HTML}
@@ -52,7 +57,8 @@ export const generateWebsite = async (
   const planResponse = await ai.models.generateContent({
     model: 'gemini-2.5-flash',
     config: {
-        systemInstruction: PLANNING_PROMPT
+        systemInstruction: PLANNING_PROMPT,
+        thinkingConfig: { thinkingBudget: 1024 } // Give it a bit of thinking room
     },
     contents: [
         { role: 'user', parts: [{ text: `User request: ${userRequest}. Current context: ${currentHtml ? 'Editing existing site' : 'New site'}` }] }
@@ -90,7 +96,7 @@ export const generateWebsite = async (
   const imagesToGenerate = Array.from(doc.querySelectorAll('img[data-image-prompt]'));
 
   if (imagesToGenerate.length > 0) {
-      onStatusUpdate(`Image Agent: Generating ${imagesToGenerate.length} custom images with Gemini...`);
+      onStatusUpdate(`Image Agent: Generating ${imagesToGenerate.length} custom images with Gemini 3 Pro...`);
       
       // Generate images in parallel
       await Promise.all(imagesToGenerate.map(async (img) => {
@@ -100,7 +106,6 @@ export const generateWebsite = async (
                   const imageUrl = await generateCustomImage(prompt);
                   if (imageUrl) {
                       img.setAttribute('src', imageUrl);
-                      // Remove the prompt attribute so we don't regenerate it next time unless changed
                       img.removeAttribute('data-image-prompt');
                   }
               } catch (e) {
@@ -118,15 +123,16 @@ export const generateWebsite = async (
 };
 
 /**
- * Generates an image using Gemini 2.5 Flash Image model.
+ * Generates an image using Gemini 3 Pro Image Preview model (Newest).
  */
 export const generateCustomImage = async (prompt: string): Promise<string> => {
-    if (!apiKey) return `https://picsum.photos/seed/${encodeURIComponent(prompt)}/800/600`;
+    if (!apiKey) return `https://placehold.co/800x600?text=${encodeURIComponent(prompt)}`;
 
     try {
-        console.log("Generating image for:", prompt);
+        console.log("Generating image with Gemini 3 Pro for:", prompt);
+        
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
+            model: 'gemini-3-pro-image-preview',
             contents: {
                 parts: [
                     { text: prompt }
@@ -134,7 +140,8 @@ export const generateCustomImage = async (prompt: string): Promise<string> => {
             },
             config: {
                 imageConfig: {
-                    aspectRatio: "16:9", // Versatile aspect ratio for web
+                    aspectRatio: "16:9", 
+                    imageSize: "1K" // 1K is standard for web use
                 }
             }
         });
@@ -149,7 +156,7 @@ export const generateCustomImage = async (prompt: string): Promise<string> => {
 
     } catch (e) {
         console.error("Gemini Image Generation Error:", e);
-        // Fallback if generation fails/quotas exceeded
-        return `https://placehold.co/800x600?text=${encodeURIComponent(prompt.substring(0, 20))}`;
+        // Fallback
+        return `https://placehold.co/800x600?text=${encodeURIComponent("Image Gen Failed")}`;
     }
 };

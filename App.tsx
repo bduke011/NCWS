@@ -1,25 +1,51 @@
 import React, { useState } from 'react';
 import { LandingPage } from './pages/LandingPage';
 import { VibePage } from './pages/VibePage';
+import { DashboardPage } from './pages/DashboardPage';
 import { getCurrentUser } from './services/api';
-import { User } from './types';
+import { User, Website } from './types';
+
+type AppState = 'landing' | 'dashboard' | 'editor';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [appState, setAppState] = useState<AppState>('landing');
+  const [selectedWebsite, setSelectedWebsite] = useState<Website | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async () => {
     setIsLoading(true);
     try {
-      // Simulate API login
       const userData = await getCurrentUser();
       setUser(userData);
+      setAppState('dashboard');
     } catch (e) {
       console.error(e);
       alert("Login failed");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleLogout = () => {
+      setUser(null);
+      setAppState('landing');
+      setSelectedWebsite(undefined);
+  };
+
+  const handleCreateNew = () => {
+      setSelectedWebsite(undefined);
+      setAppState('editor');
+  };
+
+  const handleEditWebsite = (website: Website) => {
+      setSelectedWebsite(website);
+      setAppState('editor');
+  };
+
+  const handleBackToDashboard = () => {
+      setAppState('dashboard');
+      setSelectedWebsite(undefined);
   };
 
   if (isLoading) {
@@ -32,10 +58,21 @@ export default function App() {
 
   return (
     <>
-      {user ? (
-        <VibePage user={user} />
-      ) : (
+      {!user || appState === 'landing' ? (
         <LandingPage onLogin={handleLogin} />
+      ) : appState === 'dashboard' ? (
+        <DashboardPage 
+            user={user} 
+            onCreateNew={handleCreateNew}
+            onEdit={handleEditWebsite}
+            onLogout={handleLogout}
+        />
+      ) : (
+        <VibePage 
+            user={user} 
+            initialWebsite={selectedWebsite}
+            onBack={handleBackToDashboard}
+        />
       )}
     </>
   );
