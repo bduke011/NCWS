@@ -1,0 +1,8 @@
+{
+  "name": "VibeBuilder AI",
+  "description": "A natural language website builder that lets you chat with an AI to generate, edit, and publish one-page websites instantly.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
